@@ -20,7 +20,7 @@ def dct2(a):
     return dct(dct(np.array(a).T, norm='ortho').T, norm='ortho')
 
 
-def debed_extract_8bits_symmetric(pixel_block):
+def extract_8bits_symmetric(pixel_block):
     recovered_dct_coefficients = dct2(pixel_block)
 
     extracted_bits_binary = ''
@@ -88,7 +88,7 @@ def debed(img, wt):
             if count == 0:
                 pixel = round(abs(img[0][1][-1][1]))
             if count != 0:
-                pixel = debed_extract_8bits_symmetric(img[i][j])
+                pixel = extract_8bits_symmetric(img[i][j])
             wt[count // shape][count % shape] = pixel
             count += 1
     return wt
