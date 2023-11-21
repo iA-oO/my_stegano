@@ -1,6 +1,13 @@
-import numpy as np
 import cv2
+import zlib
+import numpy as np
 from scipy.fftpack import dct, idct
+
+
+def compress_data_to_byte_array(data):
+    compressed_data = zlib.compress(bytes(data))
+    byte_array = list(compressed_data)
+    return byte_array
 
 
 def arnold(img):
@@ -24,22 +31,19 @@ def idct2(a):
     return idct(idct(np.array(a).T, norm='ortho').T, norm='ortho')
 
 
-def embed_8bits_symmetric(pixel_block, bits_to_embed, threshold=32):
-    bits_to_embed_binary = '{:08b}'.format(bits_to_embed)
+def embed_4bits_symmetric(pixel_block, bits_to_embed, threshold=44):
+    bits_to_embed_binary = '{:04b}'.format(bits_to_embed)
     dct_coefficients = dct2(pixel_block)
 
     for i, bit in enumerate(bits_to_embed_binary):
-        indices = [(i, 7 - i), (7 - i, i)] if i < 4 else [(10 - i, i - 4), (i - 3, 11 - i)]
-        x1, y1 = indices[0]
-        x2, y2 = indices[1]
-
-        bound1 = max(dct_coefficients[x2, y2], dct_coefficients[x1, y1] + threshold)
-        bound2 = min(dct_coefficients[x1, y1], dct_coefficients[x2, y2] - threshold)
-
+        x1, y1 = i, 7 - i
+        x2, y2 = 7 - i, i
         if bit == "1":
-            dct_coefficients[x1, y1], dct_coefficients[x2, y2] = bound1, bound2
+            dct_coefficients[x1, y1] = max(dct_coefficients[x2, y2], dct_coefficients[x1, y1] + threshold)
+            dct_coefficients[x2, y2] = min(dct_coefficients[x1, y1], dct_coefficients[x2, y2] - threshold)
         else:
-            dct_coefficients[x1, y1], dct_coefficients[x2, y2] = bound2, bound1
+            dct_coefficients[x1, y1] = min(dct_coefficients[x2, y2], dct_coefficients[x1, y1] - threshold)
+            dct_coefficients[x2, y2] = max(dct_coefficients[x1, y1], dct_coefficients[x2, y2] + threshold)
 
     camouflaged_pixel_block = idct2(dct_coefficients)
 
@@ -49,44 +53,65 @@ def embed_8bits_symmetric(pixel_block, bits_to_embed, threshold=32):
     return camouflaged_pixel_block_clipped
 
 
-def embed_size(img, n):
+def embed_size(img, n_1, n_2):
     for i in range(2):
         for j in range(8):
-            bitmask = 0xFE if img[0][0][i][j] >= 0 else -(abs(int(img[0][0][i][j])) & 0xFE)
-            img[0][0][i][j] = int(img[0][0][i][j]) & bitmask
+                img[0][0][i][j] = int(img[0][0][i][j]) & 0xFE
+
+    for i in range(-1, -3, -1):
+        for j in range(-1, -9, -1):
+                img[0][0][i][j] = int(img[0][0][i][j]) & 0xFE
 
     block = img[0][0]
+
     for i in range(2):
         for j in range(8):
-            if n == 0:
+            if n_1 == 0:
                 break
-            block[i][j] |= (n & 0b1)
-            n = n >> 1
+            block[i][j] |= (n_1 & 0b1)
+            n_1 = n_1 >> 1
+
+    for i in range(-1, -3, -1):
+        for j in range(-1, -9, -1):
+            if n_2 == 0:
+                break
+            block[i][j] |= (n_2 & 0b1)
+            n_2 = n_2 >> 1
 
     img[0][0] = block
 
 
-def embed_pixels(img, wt):
+def embed_numbers(img, num):
     count = 0
     n = im_w // 8
-    for i in range(shape):
-        for j in range(shape):
-            if count != 0:
-                img[count // n][count % n] = embed_8bits_symmetric(img[count // n][count % n], wt[i][j]).tolist()
-            count += 1
+    while 1:
+        if count == l * 2 + 1:
+            break
+        if count != 0 and count % 2 == 1:
+            img[count // n][count % n] = embed_4bits_symmetric(img[count // n][count % n], int((format(num[(count - 1) // 2], "08b")[0:4]), 2))
+        if count != 0 and count % 2 == 0:
+            img[count // n][count % n] = embed_4bits_symmetric(img[count // n][count % n], int((format(num[(count - 1) // 2], "08b")[4:8]), 2))                   
+        count += 1
 
 
-def encode(img, wt):
+def encode(img, number):
+
     n = im_h // 8
     m = im_w // 8
-    blocks = np.zeros([n, m, 8, 8], dtype=int).tolist()
+    blocks = np.zeros([n, m], dtype = int).tolist()
 
     for i in range(n):
         for j in range(m):
-            blocks[i][j] = img[i * 8:(i + 1) * 8, j * 8:(j + 1) * 8].tolist()
+            block = np.zeros([8, 8], dtype = int).tolist()
+            blocks[i][j] = block
 
-    embed_size(blocks, shape)
-    embed_pixels(blocks, wt)
+    for i in range(n):
+        for j in range(m):
+            block = img [i*8:(i+1)*8, j*8:(j+1)*8].tolist()
+            blocks[i][j] = block
+
+    embed_size(blocks, l, shape)
+    embed_numbers(blocks, number)
 
     return blocks
 
@@ -94,22 +119,22 @@ def encode(img, wt):
 def merge_blocks(blocks):
     n = im_h // 8
     m = im_w // 8
-    img2 = np.zeros([im_h, im_w, 3], dtype=int).tolist()
+    img2 = np.zeros([im_h, im_w, 3], dtype = int).tolist()
 
     for i in range(n):
         for j in range(m):
             for k in range(8):
-                for l in range(8):
-                    img2[i * 8 + k][j * 8 + l] = blocks[i][j][k][l]
+                for p in range(8): 
+                    img2[i*8+k][j*8+p] = blocks[i][j][k][p]
     return img2
 
 
 def del_zero(img3, img1):
     if im_h % 8 != 0:
         for i in range(im_h):
-            for j in range(-1, -1 - (im_w % 8), -1):
+            for j in range(-1, -1-(im_w % 8), -1):
                 img3[i][j] = img1[i][j]
-        for i in range(-1, -1 - (im_h % 8), -1):
+        for i in range(-1, -1-(im_h % 8), -1):
             for j in range(im_w):
                 img3[i][j] = img1[i][j]
     return img3
@@ -123,6 +148,9 @@ if __name__ == "__main__":
 
     img2 = arnold(img2)
 
-    img3 = merge_blocks(encode(img1, img2))
+    compressed_pixel_data = compress_data_to_byte_array(img2)
+    l = len(compressed_pixel_data)
+
+    img3 = merge_blocks(encode(img1, compressed_pixel_data))
 
     cv2.imwrite('image3.bmp', np.array(del_zero(img3, img1)))
