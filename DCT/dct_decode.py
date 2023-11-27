@@ -38,7 +38,7 @@ def decode(img):
     return (int(n1, 2), int(n2, 2), blocks)
 
 
-def debed(img, wt):
+def extract(img, wt):
     count = 0
     for i in range(im_h // 8):
         for j in range(im_w // 8):
@@ -73,4 +73,4 @@ if __name__ == "__main__":
     im_h, im_w, _ = img1.shape
     _, _, blocks = decode(putin_zero(img1))   
     img2 = np.zeros([wt_h, wt_w], dtype = int).tolist()
-    cv2.imwrite('image4.bmp', np.array(debed(blocks, img2)))
+    cv2.imwrite('image4.bmp', np.array(extract(blocks, img2)))
